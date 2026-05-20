@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: ai-stock-analysis
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_API_KEY
+        sync: false
+      - key: JAVA_OPTS
+        value: "-Xmx512m"
