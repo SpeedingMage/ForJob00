@@ -87,10 +87,20 @@
             <el-empty description="暂无 AI 分析，请点击「重新 AI 分析」" />
           </div>
 
-          <!-- 图表1：实时行情（5秒刷新） -->
+          <!-- 图表1：实时行情 -->
           <el-card class="chart-card">
-            <template #header><span class="card-label">实时行情</span></template>
-            <div class="chart-wrap realtime-chart"><canvas ref="realtimeCanvas"></canvas></div>
+            <template #header>
+              <div class="chart-header-row">
+                <span class="card-label">实时行情</span>
+                <span v-if="marketStatusLabel" :class="['market-status-badge', marketStatusClass]">
+                  {{ marketStatusLabel }}
+                </span>
+              </div>
+            </template>
+            <div v-if="!realtimeHasData" class="no-realtime-data">
+              <span>{{ marketStatusLabel === '交易中' ? '加载中...' : '暂无行情数据' }}</span>
+            </div>
+            <div v-show="realtimeHasData" class="chart-wrap realtime-chart"><canvas ref="realtimeCanvas"></canvas></div>
           </el-card>
 
           <!-- 图表2：近10日历史走势 -->
@@ -220,6 +230,8 @@ const fetchDetail = async () => {
 const realtimeCanvas = ref(null)
 let realtimeChart = null
 let realtimeTimer = null
+const marketStatus = ref('')
+const realtimeHasData = ref(false)
 
 const startRealtimePolling = async () => {
   stopRealtimePolling()
@@ -228,11 +240,35 @@ const startRealtimePolling = async () => {
   const fetchRealtime = async () => {
     try {
       const res = await axios.get('/api/stock/realtime', { params: { stockCode: selectedStock.value } })
-      renderRealtimeChart(res.data)
+      const body = res.data
+      marketStatus.value = body.status || ''
+      const data = body.data || []
+      realtimeHasData.value = data.length > 0
+      if (data.length > 0) renderRealtimeChart(data)
+      // 根据状态调整轮询间隔
+      adjustRealtimeInterval(body.status)
     } catch { /* ignore */ }
   }
   await fetchRealtime()
-  realtimeTimer = setInterval(fetchRealtime, 5000)
+}
+
+const adjustRealtimeInterval = (status) => {
+  if (realtimeTimer) { clearInterval(realtimeTimer); realtimeTimer = null }
+  const interval = status === 'OPEN' ? 5000 : 30000
+  realtimeTimer = setInterval(async () => {
+    try {
+      const res = await axios.get('/api/stock/realtime', { params: { stockCode: selectedStock.value } })
+      const body = res.data
+      marketStatus.value = body.status || ''
+      const data = body.data || []
+      realtimeHasData.value = data.length > 0
+      if (data.length > 0) renderRealtimeChart(data)
+      // 状态变化时重新调整间隔
+      if ((body.status === 'OPEN') !== (status === 'OPEN')) {
+        adjustRealtimeInterval(body.status)
+      }
+    } catch { /* ignore */ }
+  }, interval)
 }
 
 const stopRealtimePolling = () => {
@@ -333,6 +369,23 @@ const sentimentLabel = computed(() => {
   if (s === 'Bearish') return '看跌 Bearish'
   return '中性 Neutral'
 })
+const marketStatusLabel = computed(() => {
+  switch (marketStatus.value) {
+    case 'OPEN': return '交易中'
+    case 'LUNCH_BREAK': return '午间休市'
+    case 'PRE_MARKET': return '盘前'
+    case 'AFTER_MARKET': return '已收盘'
+    case 'WEEKEND': return '休市'
+    default: return ''
+  }
+})
+const marketStatusClass = computed(() => {
+  switch (marketStatus.value) {
+    case 'OPEN': return 'status-open'
+    case 'LUNCH_BREAK': return 'status-lunch'
+    default: return 'status-closed'
+  }
+})
 
 // ---- lifecycle ----
 watch(selectedStock, (code) => {
@@ -396,6 +449,17 @@ onUnmounted(() => stopRealtimePolling())
 .no-analysis { padding: 20px 0; }
 
 .chart-card { border-radius: 8px; margin-bottom: 16px; }
+.chart-header-row { display: flex; justify-content: space-between; align-items: center; }
+.market-status-badge {
+  font-size: 12px; padding: 2px 10px; border-radius: 10px; font-weight: 600;
+}
+.status-open { background: #e8f5e9; color: #2e7d32; }
+.status-lunch { background: #fff3e0; color: #e65100; }
+.status-closed { background: #f5f5f5; color: #909399; }
+.no-realtime-data {
+  display: flex; justify-content: center; align-items: center;
+  height: clamp(200px, 30vw, 280px); color: #909399; font-size: 14px;
+}
 .chart-wrap { position: relative; width: 100%; }
 .chart-wrap.realtime-chart { height: clamp(200px, 30vw, 280px); }
 .chart-wrap.history-chart { height: clamp(220px, 32vw, 300px); }

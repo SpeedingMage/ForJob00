@@ -1,5 +1,6 @@
 package com.atguigu.java.ai.langchain4j.service;
 
+import com.atguigu.java.ai.langchain4j.model.RealTimeResponse;
 import com.atguigu.java.ai.langchain4j.model.StockAnalysisResponse;
 import com.atguigu.java.ai.langchain4j.model.StockDetailResponse;
 import com.atguigu.java.ai.langchain4j.model.StockQuote;
@@ -34,6 +35,9 @@ public class StockAnalysisService {
     @Autowired
     private MockStockApiService mockStockApiService;
 
+    @Autowired
+    private TradingHoursService tradingHoursService;
+
     @Value("classpath:stock-analysis-prompt-template.txt")
     private Resource promptTemplate;
 
@@ -44,6 +48,8 @@ public class StockAnalysisService {
     private final Map<String, List<Map<String, Object>>> realtimeCache = new ConcurrentHashMap<>();
     // 每个股票的基础实时价格缓存
     private final Map<String, Double> realtimeBasePrice = new ConcurrentHashMap<>();
+    // 记录已做过收盘总结的 stockCode+date，防止重复
+    private final Set<String> summarizedDates = ConcurrentHashMap.newKeySet();
 
     // ==================== AI 分析 ====================
 
@@ -112,44 +118,151 @@ public class StockAnalysisService {
 
     // ==================== 实时行情 ====================
 
-    /**
-     * 获取/生成实时行情数据。每次调用追加一个数据点（FIFO 队列），5 秒调用一次。
-     */
-    public List<Map<String, Object>> getRealtimeData(String stockCode) {
+    public RealTimeResponse getRealtimeData(String stockCode) {
+        TradingHoursService.MarketStatus status = tradingHoursService.getMarketStatus();
         String code = stockCode.toUpperCase();
-        List<Map<String, Object>> list = realtimeCache.computeIfAbsent(code, k -> new ArrayList<>());
+        String today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE);
 
-        // 基准价
+        if (status == TradingHoursService.MarketStatus.WEEKEND
+                || status == TradingHoursService.MarketStatus.PRE_MARKET) {
+            return new RealTimeResponse(status.name(), List.of());
+        }
+
+        List<Map<String, Object>> list = realtimeCache.computeIfAbsent(code, k -> new ArrayList<>());
         double base = realtimeBasePrice.computeIfAbsent(code,
                 k -> MockStockApiService.generateBasePrice(code));
 
-        synchronized (list) {
-            double lastPrice;
-            if (list.isEmpty()) {
-                lastPrice = base;
-            } else {
-                Object closeObj = list.get(list.size() - 1).get("price");
-                lastPrice = ((Number) closeObj).doubleValue();
+        if (status == TradingHoursService.MarketStatus.OPEN) {
+            synchronized (list) {
+                if (list.isEmpty()) {
+                    List<Map<String, Object>> dbPoints = supabaseService.getIntradayPoints(code, today);
+                    if (!dbPoints.isEmpty()) {
+                        list.addAll(dbPoints);
+                    } else {
+                        LocalTime sessionStart = tradingHoursService.getSessionStart();
+                        List<Map<String, Object>> backfill = generateBackfillPoints(code, base, sessionStart);
+                        if (!backfill.isEmpty()) {
+                            list.addAll(backfill);
+                            supabaseService.saveIntradayBatch(code, today, backfill);
+                        }
+                    }
+                }
+
+                double lastPrice = list.isEmpty() ? base
+                        : ((Number) list.get(list.size() - 1).get("price")).doubleValue();
+                double change = lastPrice * (random.nextDouble() * 0.01 - 0.005);
+                double newPrice = BigDecimal.valueOf(lastPrice + change).setScale(2, RoundingMode.HALF_UP).doubleValue();
+                long newVolume = 100_000L + random.nextLong(2_000_000L);
+                String time = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"));
+
+                Map<String, Object> point = new LinkedHashMap<>();
+                point.put("time", time);
+                point.put("price", newPrice);
+                point.put("volume", newVolume);
+                list.add(point);
+
+                supabaseService.saveIntradayPoint(code, today, time, newPrice, newVolume);
+
+                // FIFO：保留全天约 4 小时的 5 秒间隔数据
+                while (list.size() > 3000) {
+                    list.remove(0);
+                }
             }
+            return new RealTimeResponse(status.name(), new ArrayList<>(list));
+        }
 
-            // 随机波动 ±0.5%
-            double change = lastPrice * (random.nextDouble() * 0.01 - 0.005);
-            double newPrice = BigDecimal.valueOf(lastPrice + change).setScale(2, RoundingMode.HALF_UP).doubleValue();
-            String time = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"));
-
-            Map<String, Object> point = new LinkedHashMap<>();
-            point.put("time", time);
-            point.put("price", newPrice);
-            point.put("volume", 100_000L + random.nextLong(2_000_000L));
-            list.add(point);
-
-            // FIFO：最多保留 120 个点（10 分钟）
-            while (list.size() > 120) {
-                list.remove(0);
+        // LUNCH_BREAK 或 AFTER_MARKET：不追加新点，但从DB加载已有数据
+        if (status == TradingHoursService.MarketStatus.LUNCH_BREAK
+                || status == TradingHoursService.MarketStatus.AFTER_MARKET) {
+            synchronized (list) {
+                if (list.isEmpty()) {
+                    List<Map<String, Object>> dbPoints = supabaseService.getIntradayPoints(code, today);
+                    if (!dbPoints.isEmpty()) {
+                        list.addAll(dbPoints);
+                    }
+                }
             }
         }
 
-        return new ArrayList<>(list); // 返回副本
+        if (status == TradingHoursService.MarketStatus.AFTER_MARKET && !list.isEmpty()) {
+            summarizeDayIfNeeded(code, today, list);
+        }
+
+        return new RealTimeResponse(status.name(), new ArrayList<>(list));
+    }
+
+    private List<Map<String, Object>> generateBackfillPoints(String stockCode, double basePrice, LocalTime sessionStart) {
+        List<Map<String, Object>> points = new ArrayList<>();
+        LocalTime now = LocalTime.now();
+        if (!now.isAfter(sessionStart)) return points;
+
+        double price = basePrice * (0.97 + random.nextDouble() * 0.06);
+        LocalTime cursor = sessionStart;
+        while (cursor.isBefore(now)) {
+            double change = price * (random.nextDouble() * 0.002 - 0.001);
+            price = BigDecimal.valueOf(price + change).setScale(2, RoundingMode.HALF_UP).doubleValue();
+            Map<String, Object> point = new LinkedHashMap<>();
+            point.put("time", cursor.format(DateTimeFormatter.ofPattern("HH:mm:ss")));
+            point.put("price", price);
+            point.put("volume", 100_000L + random.nextLong(2_000_000L));
+            points.add(point);
+            cursor = cursor.plusSeconds(5);
+        }
+        return points;
+    }
+
+    private void summarizeDayIfNeeded(String stockCode, String tradeDate,
+                                      List<Map<String, Object>> intradayData) {
+        String key = stockCode + "_" + tradeDate;
+        if (!summarizedDates.add(key)) return;
+
+        if (intradayData.isEmpty()) return;
+
+        double open = ((Number) intradayData.get(0).get("price")).doubleValue();
+        double close = ((Number) intradayData.get(intradayData.size() - 1).get("price")).doubleValue();
+        double high = open;
+        double low = open;
+        long totalVolume = 0;
+        for (Map<String, Object> p : intradayData) {
+            double px = ((Number) p.get("price")).doubleValue();
+            if (px > high) high = px;
+            if (px < low) low = px;
+            totalVolume += ((Number) p.get("volume")).longValue();
+        }
+        high = BigDecimal.valueOf(high).setScale(2, RoundingMode.HALF_UP).doubleValue();
+        low = BigDecimal.valueOf(low).setScale(2, RoundingMode.HALF_UP).doubleValue();
+        open = BigDecimal.valueOf(open).setScale(2, RoundingMode.HALF_UP).doubleValue();
+        close = BigDecimal.valueOf(close).setScale(2, RoundingMode.HALF_UP).doubleValue();
+
+        JsonNode historyNode = supabaseService.getStockHistory(stockCode);
+        List<Map<String, Object>> history;
+        try {
+            if (historyNode != null && historyNode.has("price_history")) {
+                JsonNode priceNode = historyNode.get("price_history");
+                String priceText = priceNode.isTextual() ? priceNode.asText() : priceNode.toString();
+                history = objectMapper.readValue(priceText,
+                        new TypeReference<List<Map<String, Object>>>() {});
+            } else {
+                history = new ArrayList<>();
+            }
+        } catch (Exception e) {
+            history = new ArrayList<>();
+        }
+
+        Map<String, Object> day = new LinkedHashMap<>();
+        day.put("date", tradeDate);
+        day.put("open", open);
+        day.put("high", high);
+        day.put("low", low);
+        day.put("close", close);
+        day.put("volume", totalVolume);
+        history.add(day);
+
+        while (history.size() > 10) {
+            history.remove(0);
+        }
+
+        supabaseService.updatePriceHistory(stockCode, toJson(history));
     }
 
     // ==================== Mock 10 日历史 ====================

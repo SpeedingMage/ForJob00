@@ -28,23 +28,58 @@ public class SupabaseService {
 
     // ==================== Stock Analysis ====================
 
+    public JsonNode getAnalysis(String stockCode) {
+        try {
+            String response = supabaseWebClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/stock_analysis")
+                            .queryParam("stock_code", "eq." + stockCode.toUpperCase())
+                            .queryParam("select", "*")
+                            .queryParam("limit", 1)
+                            .build())
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+            if (response == null || response.equals("[]")) return null;
+            JsonNode arr = objectMapper.readTree(response);
+            return arr.size() > 0 ? arr.get(0) : null;
+        } catch (Exception e) {
+            log.error("查询分析记录失败: {}", e.getMessage());
+            return null;
+        }
+    }
+
     public void saveAnalysis(String stockCode, StockAnalysisResponse analysis) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("stock_code", stockCode);
         body.put("summary", analysis.getSummary());
         body.put("sentiment", analysis.getSentiment());
         body.put("risk_level", analysis.getRiskLevel());
-        body.put("created_at", Instant.now().toString());
+        body.put("updated_at", Instant.now().toString());
 
         try {
-            String result = supabaseWebClient.post()
-                    .uri("/stock_analysis")
-                    .header("Prefer", "return=minimal")
-                    .bodyValue(body)
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .block();
-            log.info("Supabase 写入成功: {} {}", stockCode, result);
+            JsonNode existing = getAnalysis(stockCode);
+            if (existing != null) {
+                int id = existing.get("id").asInt();
+                supabaseWebClient.patch()
+                        .uri("/stock_analysis?id=eq." + id)
+                        .header("Prefer", "return=minimal")
+                        .bodyValue(body)
+                        .retrieve()
+                        .bodyToMono(String.class)
+                        .block();
+                log.info("Supabase 更新分析成功: {}", stockCode);
+            } else {
+                body.put("created_at", Instant.now().toString());
+                supabaseWebClient.post()
+                        .uri("/stock_analysis")
+                        .header("Prefer", "return=minimal")
+                        .bodyValue(body)
+                        .retrieve()
+                        .bodyToMono(String.class)
+                        .block();
+                log.info("Supabase 新增分析成功: {}", stockCode);
+            }
         } catch (WebClientResponseException e) {
             log.error("Supabase 写入失败: HTTP {} - {}. 请检查: 1)表是否已创建 2)API Key是否正确",
                     e.getStatusCode().value(), e.getResponseBodyAsString());
@@ -169,6 +204,68 @@ public class SupabaseService {
         }
     }
 
+    // ==================== Stock Intraday ====================
+
+    public List<Map<String, Object>> getIntradayPoints(String stockCode, String tradeDate) {
+        try {
+            String response = supabaseWebClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/stock_intraday")
+                            .queryParam("stock_code", "eq." + stockCode.toUpperCase())
+                            .queryParam("trade_date", "eq." + tradeDate)
+                            .queryParam("select", "time,price,volume")
+                            .queryParam("order", "time.asc")
+                            .build())
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+            if (response == null || response.equals("[]")) return List.of();
+            JsonNode arr = objectMapper.readTree(response);
+            List<Map<String, Object>> list = new ArrayList<>();
+            for (JsonNode node : arr) {
+                Map<String, Object> point = new LinkedHashMap<>();
+                point.put("time", node.get("time").asText());
+                point.put("price", node.get("price").asDouble());
+                point.put("volume", node.get("volume").asLong());
+                list.add(point);
+            }
+            return list;
+        } catch (Exception e) {
+            log.error("查询日内走势失败: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    public void saveIntradayPoint(String stockCode, String tradeDate, String time, double price, long volume) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("stock_code", stockCode.toUpperCase());
+        body.put("trade_date", tradeDate);
+        body.put("time", time);
+        body.put("price", price);
+        body.put("volume", volume);
+
+        try {
+            supabaseWebClient.post()
+                    .uri("/stock_intraday")
+                    .header("Prefer", "return=minimal")
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+        } catch (Exception e) {
+            log.error("保存日内数据点失败: {}", e.getMessage());
+        }
+    }
+
+    public void saveIntradayBatch(String stockCode, String tradeDate, List<Map<String, Object>> points) {
+        for (Map<String, Object> point : points) {
+            String time = (String) point.get("time");
+            double price = ((Number) point.get("price")).doubleValue();
+            long volume = ((Number) point.get("volume")).longValue();
+            saveIntradayPoint(stockCode, tradeDate, time, price, volume);
+        }
+    }
+
     // ==================== Stock History ====================
 
     public JsonNode getStockHistory(String stockCode) {
@@ -226,6 +323,31 @@ public class SupabaseService {
             return true;
         } catch (Exception e) {
             log.error("股票历史保存失败: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    public boolean updatePriceHistory(String stockCode, String priceHistoryJson) {
+        JsonNode existing = getStockHistory(stockCode);
+        if (existing == null) return false;
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("price_history", priceHistoryJson);
+        body.put("updated_at", Instant.now().toString());
+
+        try {
+            int id = existing.get("id").asInt();
+            supabaseWebClient.patch()
+                    .uri("/stock_history?id=eq." + id)
+                    .header("Prefer", "return=minimal")
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+            log.info("价格历史更新成功: {}", stockCode);
+            return true;
+        } catch (Exception e) {
+            log.error("价格历史更新失败: {}", e.getMessage());
             return false;
         }
     }
