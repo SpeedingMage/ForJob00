@@ -2,7 +2,7 @@
 
 基于 AI 大模型的股票行情分析平台，提供实时行情走势、AI 智能分析、自选股管理等一站式功能。
 
-> **在线演示**: [https://forjob00.onrender.com/](https://forjob00.onrender.com/)（Render Free Plan，首次访问需等待约 30 秒冷启动）
+> **在线演示**: [https://forjob00.onrender.com/](https://forjob00.onrender.com/)（Render Free Plan，首次访问需等待约 30 秒冷启动，测试账号16622733884或17722356478，密码都是123456）
 
 ## 功能总览
 
