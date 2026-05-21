@@ -15,10 +15,13 @@
           <span v-if="!addLoading" class="fav-del" @click.stop="removeFavorite(code)">&times;</span>
         </div>
       </div>
-      <div class="add-stock">
-        <el-input v-model="addCode" placeholder="添加代码" size="small"
-          :disabled="addLoading" @keyup.enter="addFavorite" />
-        <el-button size="small" :loading="addLoading" @click="addFavorite">+</el-button>
+      <div class="add-stock-wrap">
+        <div class="add-stock">
+          <el-input v-model="addCode" placeholder="添加代码，如 AAPL、600519" size="small"
+            :disabled="addLoading" @keyup.enter="addFavorite" @input="addError = ''" />
+          <el-button size="small" :loading="addLoading" @click="addFavorite">+</el-button>
+        </div>
+        <div v-if="addError" class="add-error">{{ addError }}</div>
       </div>
     </aside>
 
@@ -128,8 +131,12 @@ defineEmits(['logout'])
 const favorites = ref([])
 const addCode = ref('')
 const addLoading = ref(false)
+const addError = ref('')
 const lastAddTime = ref(0)
-const ADD_COOLDOWN = 1000 // 两次添加的最小间隔（毫秒）
+const ADD_COOLDOWN = 1000
+const STOCK_CODE_RE = /^[A-Z]{1,5}$|^\d{5,6}$/
+
+const isValidStockCode = (code) => STOCK_CODE_RE.test(code)
 
 // 去重：保留首次出现的位置
 const dedupFavorites = () => {
@@ -154,6 +161,12 @@ const fetchFavorites = async () => {
 const addFavorite = async () => {
   const code = addCode.value.trim().toUpperCase()
   if (!code) return
+
+  // 格式校验
+  if (!isValidStockCode(code)) {
+    addError.value = '代码格式不正确（1-10位字母或数字）'
+    return
+  }
 
   // 第一层：loading 锁，防止并发请求
   if (addLoading.value) return
@@ -198,6 +211,10 @@ let cooldownTimer = null
 const startAnalyze = async () => {
   const code = searchCode.value.trim().toUpperCase()
   if (!code) return
+  if (!isValidStockCode(code)) {
+    analyzeError.value = '股票代码格式不正确（1-10位字母或数字，如 AAPL、600519）'
+    return
+  }
   analyzeLoading.value = true
   analyzeError.value = ''
   try {
@@ -462,9 +479,10 @@ onUnmounted(() => stopRealtimePolling())
 .fav-code { font-family: monospace; }
 .fav-del { font-size: 18px; opacity: 0.5; cursor: pointer; }
 .fav-del:hover { opacity: 1; color: #f56c6c; }
-.add-stock { display: flex; gap: 6px; padding-top: 12px;
-  border-top: 1px solid #333; margin-top: 8px; }
+.add-stock-wrap { border-top: 1px solid #333; margin-top: 8px; padding-top: 12px; }
+.add-stock { display: flex; gap: 6px; }
 .add-stock .el-input { flex: 1; }
+.add-error { color: #f56c6c; font-size: 11px; margin-top: 6px; line-height: 1.4; }
 
 .main-content {
   flex: 1; min-width: 0; /* min-width:0 防止内容撑开 flex 容器 */

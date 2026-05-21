@@ -89,6 +89,14 @@ Browser
 - Render Docker 部署（修复 manifest 缺失、时区问题、前缀过滤）
 - 撰写 README.md
 
+### 第六轮：数据完整性 + 前端健壮性
+- 修复 AI 重新分析时覆盖 `price_history` 的问题（新增 `updateLastAnalysis()` 只更新分析字段）
+- 新增收藏股票时自动生成 mock 近 10 日历史（`ensureStockHistory()`）
+- 前端防重复点击：三层防护（loading 锁 + 时间戳锁 + UI 禁用）
+- 收藏列表去重（`dedupFavorites()`，Set 去重）
+- 移动端适配修复（`100dvh`、flex 子元素滚动、iOS 触控滚动）
+- 股票代码校验收紧：`^[A-Z]{1,5}$|^\d{5,6}$`（美股 1-5 字母、A 股 6 数字、港股 5 数字）
+
 ---
 
 ## 三、功能清单
@@ -103,6 +111,10 @@ Browser
 | **交易时间** | 北京时间 9:30-11:30、13:00-15:00，周末休市，前端状态标签 |
 | **LLM 日志** | 每次 AI 分析原始输出写入 `LLMReturn.txt` |
 | **API 前缀** | `ApiPrefixFilter` 剥离 `/api` 前缀，兼容前端开发路径 |
+| **防重复点击** | 三层防护：loading 布尔锁 + `lastAddTime` 时间戳锁 + CSS `pointer-events: none` UI 禁用 |
+| **收藏去重** | 每次操作完成后自动检查收藏列表，Set 去重 |
+| **代码校验** | 美股 1-5 大写字母、A 股 6 位数字、港股 5 位数字，正则 `^[A-Z]{1,5}$\|^\d{5,6}$` |
+| **移动端优化** | `100dvh` 动态视口、flex 子元素滚动（`min-height: 0`）、iOS 平滑滚动 |
 
 ---
 
@@ -134,7 +146,18 @@ Browser
 | 5 | AI 分析每 5 秒无限循环 | (1) `fetchDetail()` 自动调用 `reanalyze()` (2) JSON 双重编码导致 `treeToValue()` 失败 | (1) 移除自动分析触发 (2) `TextNode` 与 `ObjectNode` 双分支处理 |
 | 8 | 平板/手机布局不佳 | 固定像素尺寸不适配 | CSS `clamp()` + `grid auto-fit` + 四档媒体查询 |
 
-### 4.5 安全
+### 4.5 数据完整性
+| # | 现象 | 原因 | 解决 |
+|---|------|------|------|
+| 12 | AI 重新分析后 10 日历史被覆盖 | `analyzeStock()` 每次都重新 `insertStockHistory()` 写入随机 mock 数据 | 先检查 `stock_history` 是否存在，存在则只调用 `updateLastAnalysis()` 更新分析字段 |
+| 13 | 新增收藏股无历史数据 | `addFavorite()` 只插入收藏记录，不创建 `stock_history` | 注入 `StockAnalysisService`，新增时调用 `ensureStockHistory()` 生成 mock 10 日 |
+
+### 4.6 安全
 | # | 现象 | 原因 | 解决 |
 |---|------|------|------|
 | 6 | API Key 硬编码泄露 | `application.properties` 和 `render.yaml` 含真实密钥 | 全部改为 `${ENV_VAR}` 占位符；删除 `.git` 重建；`.gitignore` 补充 |
+
+### 4.7 前端校验
+| # | 现象 | 原因 | 解决 |
+|---|------|------|------|
+| 14 | 股票代码"44"能通过校验 | 原正则 `^[A-Z0-9]{1,10}$` 过于宽松，允许纯数字短串 | 收紧为 `^[A-Z]{1,5}$\|^\d{5,6}$`，区分美股/A股/港股格式 |

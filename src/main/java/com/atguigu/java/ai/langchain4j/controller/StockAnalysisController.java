@@ -15,12 +15,18 @@ public class StockAnalysisController {
     @Autowired
     private StockAnalysisService stockAnalysisService;
 
+    private static final java.util.regex.Pattern STOCK_CODE = java.util.regex.Pattern.compile("^[A-Z]{1,5}$|^\\d{5,6}$");
+
     @PostMapping("/analyze")
     public ResponseEntity<?> analyze(@RequestBody StockAnalysisRequest request) {
-        if (request.getStockCode() == null || request.getStockCode().isBlank()) {
+        String code = request.getStockCode();
+        if (code == null || code.isBlank()) {
             return ResponseEntity.badRequest().body("股票代码不能为空");
         }
-        StockAnalysisResponse response = stockAnalysisService.analyzeStock(request.getStockCode());
+        if (!STOCK_CODE.matcher(code.toUpperCase()).matches()) {
+            return ResponseEntity.badRequest().body("股票代码格式不正确（1-10位字母或数字）");
+        }
+        StockAnalysisResponse response = stockAnalysisService.analyzeStock(code);
         return ResponseEntity.ok(response);
     }
 

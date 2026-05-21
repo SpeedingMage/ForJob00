@@ -24,8 +24,14 @@ public class FavoriteController {
         return ApiResponse.ok(supabaseService.getFavorites(phone));
     }
 
+    private static final java.util.regex.Pattern STOCK_CODE = java.util.regex.Pattern.compile("^[A-Z]{1,5}$|^\\d{5,6}$");
+
     @PostMapping("/add")
     public ApiResponse<Void> add(@RequestBody FavoriteRequest request) {
+        String code = request.getStockCode();
+        if (code == null || !STOCK_CODE.matcher(code.toUpperCase()).matches()) {
+            return ApiResponse.fail("股票代码格式不正确（1-10位字母或数字）");
+        }
         boolean ok = supabaseService.addFavorite(request.getPhone(), request.getStockCode());
         if (ok) {
             stockAnalysisService.ensureStockHistory(request.getStockCode());
