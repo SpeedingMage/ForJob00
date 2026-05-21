@@ -2,6 +2,8 @@
 
 基于 AI 大模型的股票行情分析平台，提供实时行情走势、AI 智能分析、自选股管理等一站式功能。
 
+> **在线演示**: [https://forjob00.onrender.com/](https://forjob00.onrender.com/)（Render Free Plan，首次访问需等待约 30 秒冷启动）
+
 ## 功能总览
 
 ### AI 智能分析
@@ -20,6 +22,42 @@
 ### 自选股管理
 - 手机号注册/登录
 - 添加/删除自选股票，一键切换查看
+
+## LLM JSON 输出控制
+
+本项目未使用 LangChain4j 的 `@AiService` 注解或 Tool Calling，而是直接调用 `ChatLanguageModel.chat()` 并通过 **Prompt Engineering** 严格约束大模型输出合法 JSON。核心 Prompt 模板如下：
+
+```
+你是一个专业的股票分析师 AI。你的唯一任务是：基于提供的股票行情数据，
+生成严格符合指定 JSON 格式的分析结果。
+
+## 输出要求
+- 你必须只输出一个 JSON 对象，不能有任何其他文字。
+- 不能使用 Markdown 代码块标记（如 ```json 或 ```）。
+- 不能添加问候语、免责声明、或任何额外的解释。
+- 你的整个响应必须是合法的 JSON，可以被 Java 的 Jackson ObjectMapper 直接解析。
+
+## JSON 格式
+{
+  "summary": "对股票行情的深度分析总结（200字以内）",
+  "sentiment": "Bullish 或 Neutral 或 Bearish（三选一）",
+  "riskLevel": "风险评估等级及简短原因（如：高风险，因为...）"
+}
+
+## 分析维度
+- 根据价格变动、成交量、日内振幅判断短期趋势
+- 给出明确的市场情绪判断（Bullish / Neutral / Bearish）
+- 结合涨跌幅与波动性评估当前风险等级
+
+## 重要提醒
+- 字段名必须严格使用 summary、sentiment、riskLevel（区分大小写）
+- sentiment 只能是 "Bullish"、"Neutral"、"Bearish" 三选一
+- 不要输出任何 JSON 以外的内容
+
+当前日期：{{current_date}}
+```
+
+完整模板文件位于 `src/main/resources/stock-analysis-prompt-template.txt`，`{{current_date}}` 占位符在运行时注入当天北京时间。收到 LLM 原始输出后，代码层面还会做一道兜底处理——正则去除可能残留的 Markdown 代码块标记（``` ），再用 Jackson 解析并校验 `sentiment` 的值。
 
 ## 技术栈
 
@@ -174,3 +212,7 @@ npm run dev
 ```
 
 线上部署后如需真实短信服务，只需替换 `AuthService.sendCode()` 方法，接入阿里云短信、腾讯云短信等服务商即可。
+
+## 开发日志
+
+详细的开发过程、架构设计决策、每轮指令记录及 Debug 经验请参阅 [WhatDidIDo.md](WhatDidIDo.md)。
