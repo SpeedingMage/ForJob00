@@ -428,17 +428,30 @@ onUnmounted(() => stopRealtimePolling())
 </script>
 
 <style scoped>
-.dashboard { display: flex; height: 100vh; background: #f5f7fa; }
+.dashboard {
+  display: flex;
+  height: 100vh;
+  height: 100dvh; /* 动态视口高度，移动端浏览器地址栏变化时自动适配 */
+  background: #f5f7fa;
+  overflow: hidden; /* 防止整体页面拖动露出空白 */
+}
 
 .sidebar {
   width: 220px; min-width: 220px; background: #1a1a2e; color: #fff;
   display: flex; flex-direction: column; padding: 16px;
+  overflow: hidden; /* 子元素自行管理滚动 */
 }
 .user-info { display: flex; justify-content: space-between; align-items: center;
-  padding-bottom: 12px; border-bottom: 1px solid #333; margin-bottom: 12px; }
-.phone-label { font-size: 13px; color: #ccc; }
+  padding-bottom: 12px; border-bottom: 1px solid #333; margin-bottom: 12px;
+  flex-shrink: 0; }
+.fav-header { flex-shrink: 0; }
 .fav-header h3 { font-size: 14px; margin: 0 0 10px; color: #ccc; }
-.fav-list { flex: 1; overflow-y: auto; }
+.fav-list {
+  flex: 1; min-height: 0; /* min-height:0 是 flex 子元素滚动的关键 */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch; /* iOS 顺滑滚动 */
+}
+.add-stock { flex-shrink: 0; }
 .fav-empty { color: #666; font-size: 12px; padding: 8px 0; }
 .fav-item { display: flex; justify-content: space-between; align-items: center;
   padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 14px;
@@ -453,7 +466,12 @@ onUnmounted(() => stopRealtimePolling())
   border-top: 1px solid #333; margin-top: 8px; }
 .add-stock .el-input { flex: 1; }
 
-.main-content { flex: 1; overflow-y: auto; padding: clamp(16px, 3vw, 40px); }
+.main-content {
+  flex: 1; min-width: 0; /* min-width:0 防止内容撑开 flex 容器 */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: clamp(16px, 3vw, 40px);
+}
 
 .welcome-view { max-width: min(700px, 90%); margin: clamp(20px, 5vh, 40px) auto 0; }
 .header { text-align: center; margin-bottom: clamp(16px, 3vw, 24px); }
@@ -506,15 +524,27 @@ onUnmounted(() => stopRealtimePolling())
 /* 手机横屏 / 小平板 */
 @media (max-width: 768px) {
   .dashboard { flex-direction: column; }
-  .sidebar { width: 100%; min-width: auto; flex-direction: row; flex-wrap: wrap;
-    gap: 8px; padding: 10px; align-items: center; }
-  .user-info { border: none; margin: 0; padding: 0; }
+  .sidebar {
+    width: 100%; min-width: auto; max-height: 30vh;
+    flex-shrink: 0; overflow: hidden;
+    display: flex; flex-direction: column;
+    gap: 6px; padding: 10px;
+  }
+  .user-info { border: none; margin: 0; padding: 0; flex-shrink: 0; }
   .fav-header { display: none; }
-  .fav-list { display: flex; gap: 4px; overflow-x: auto; flex: none; }
-  .fav-item { white-space: nowrap; padding: 4px 8px; }
+  .fav-list {
+    display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden;
+    flex: none; padding: 4px 0;
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+  }
+  .fav-item { white-space: nowrap; padding: 4px 10px; flex-shrink: 0; }
   .fav-del { display: none; }
-  .add-stock { border: none; margin: 0; padding: 0; }
-  .main-content { padding: 16px; }
+  .add-stock {
+    border: none; margin: 0; padding: 0; flex-shrink: 0;
+    display: flex; gap: 6px;
+  }
+  .main-content { padding: 16px; flex: 1; min-height: 0; }
   .cards-row { grid-template-columns: 1fr; }
   .detail-header h2 { font-size: 18px; }
   .input-row { flex-direction: column; }
