@@ -84,6 +84,18 @@ public class StockAnalysisService {
         return response;
     }
 
+    /**
+     * 确保股票有十日历史数据。若不存在，生成 mock 历史并写入。
+     * 收藏股票时调用，使详情页走势图立即有数据显示。
+     */
+    public void ensureStockHistory(String stockCode) {
+        JsonNode existing = supabaseService.getStockHistory(stockCode);
+        if (existing == null) {
+            String historyJson = toJson(generateMockPriceHistory(stockCode));
+            supabaseService.saveStockHistory(stockCode, historyJson, null);
+        }
+    }
+
     // ==================== 股票详情 ====================
 
     public StockDetailResponse getStockDetail(String stockCode) {
