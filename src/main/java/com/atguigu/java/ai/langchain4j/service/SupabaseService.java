@@ -350,4 +350,29 @@ public class SupabaseService {
             return false;
         }
     }
+
+    public boolean updateLastAnalysis(String stockCode, String analysisJson) {
+        JsonNode existing = getStockHistory(stockCode);
+        if (existing == null) return false;
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("last_analysis", analysisJson);
+        body.put("updated_at", Instant.now().toString());
+
+        try {
+            int id = existing.get("id").asInt();
+            supabaseWebClient.patch()
+                    .uri("/stock_history?id=eq." + id)
+                    .header("Prefer", "return=minimal")
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+            log.info("分析结果更新成功: {}", stockCode);
+            return true;
+        } catch (Exception e) {
+            log.error("分析结果更新失败: {}", e.getMessage());
+            return false;
+        }
+    }
 }

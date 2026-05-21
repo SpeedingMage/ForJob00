@@ -66,10 +66,16 @@ public class StockAnalysisService {
 
         supabaseService.saveAnalysis(stockCode, response);
 
-        List<Map<String, Object>> history = generateMockPriceHistory(stockCode);
-        String historyJson = toJson(history);
         String analysisJson = toJson(response);
-        supabaseService.saveStockHistory(stockCode, historyJson, analysisJson);
+        JsonNode existingHistory = supabaseService.getStockHistory(stockCode);
+        if (existingHistory == null) {
+            // 首次分析：生成 mock 10 日历史并写入
+            String historyJson = toJson(generateMockPriceHistory(stockCode));
+            supabaseService.saveStockHistory(stockCode, historyJson, analysisJson);
+        } else {
+            // 已有历史数据：只更新 AI 分析，不动 price_history
+            supabaseService.updateLastAnalysis(stockCode, analysisJson);
+        }
 
         // 初始化实时行情基准价
         realtimeCache.remove(stockCode);
@@ -108,10 +114,8 @@ public class StockAnalysisService {
                     detail.setPriceHistory(history);
                 }
             } catch (Exception e) {
-                detail.setPriceHistory(generateMockPriceHistory(stockCode));
+                // 解析失败，返回空列表
             }
-        } else {
-            detail.setPriceHistory(generateMockPriceHistory(stockCode));
         }
 
         return detail;
