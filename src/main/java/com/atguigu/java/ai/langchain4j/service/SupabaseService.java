@@ -55,7 +55,6 @@ public class SupabaseService {
         body.put("summary", analysis.getSummary());
         body.put("sentiment", analysis.getSentiment());
         body.put("risk_level", analysis.getRiskLevel());
-        body.put("updated_at", Instant.now().toString());
 
         try {
             JsonNode existing = getAnalysis(stockCode);

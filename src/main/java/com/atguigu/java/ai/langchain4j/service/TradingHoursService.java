@@ -2,12 +2,13 @@ package com.atguigu.java.ai.langchain4j.service;
 
 import org.springframework.stereotype.Service;
 
-import java.time.DayOfWeek;
-import java.time.LocalDate;
-import java.time.LocalTime;
+import java.time.*;
+import java.time.format.DateTimeFormatter;
 
 @Service
 public class TradingHoursService {
+
+    private static final ZoneId CHINA_ZONE = ZoneId.of("Asia/Shanghai");
 
     public enum MarketStatus {
         PRE_MARKET,     // 交易日 00:00-9:30
@@ -23,7 +24,7 @@ public class TradingHoursService {
     private static final LocalTime AFTERNOON_CLOSE = LocalTime.of(15, 0);
 
     public boolean isTradingDay() {
-        DayOfWeek day = LocalDate.now().getDayOfWeek();
+        DayOfWeek day = LocalDate.now(CHINA_ZONE).getDayOfWeek();
         return day != DayOfWeek.SATURDAY && day != DayOfWeek.SUNDAY;
     }
 
@@ -31,7 +32,7 @@ public class TradingHoursService {
         if (!isTradingDay()) {
             return MarketStatus.WEEKEND;
         }
-        LocalTime now = LocalTime.now();
+        LocalTime now = LocalTime.now(CHINA_ZONE);
         if (now.isBefore(MORNING_OPEN)) {
             return MarketStatus.PRE_MARKET;
         }
@@ -47,15 +48,16 @@ public class TradingHoursService {
         return MarketStatus.AFTER_MARKET;
     }
 
-    /**
-     * 返回当前交易时段的开始时间，用于回填历史数据。
-     * 仅在 OPEN 状态下有意义。
-     */
     public LocalTime getSessionStart() {
-        LocalTime now = LocalTime.now();
+        LocalTime now = LocalTime.now(CHINA_ZONE);
         if (now.isBefore(MORNING_CLOSE)) {
             return MORNING_OPEN;
         }
         return AFTERNOON_OPEN;
+    }
+
+    /** 获取北京时间的当前日期字符串 */
+    public static String todayInChina() {
+        return LocalDate.now(CHINA_ZONE).format(DateTimeFormatter.ISO_LOCAL_DATE);
     }
 }

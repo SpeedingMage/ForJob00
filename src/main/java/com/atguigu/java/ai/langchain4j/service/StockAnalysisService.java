@@ -122,7 +122,7 @@ public class StockAnalysisService {
     public RealTimeResponse getRealtimeData(String stockCode) {
         TradingHoursService.MarketStatus status = tradingHoursService.getMarketStatus();
         String code = stockCode.toUpperCase();
-        String today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE);
+        String today = TradingHoursService.todayInChina();
 
         if (status == TradingHoursService.MarketStatus.WEEKEND
                 || status == TradingHoursService.MarketStatus.PRE_MARKET) {
@@ -271,7 +271,7 @@ public class StockAnalysisService {
     private List<Map<String, Object>> generateMockPriceHistory(String stockCode) {
         double basePrice = MockStockApiService.generateBasePrice(stockCode);
         List<Map<String, Object>> list = new ArrayList<>();
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
 
         double price = basePrice * (0.85 + random.nextDouble() * 0.3);
         for (int i = 9; i >= 0; i--) {
@@ -313,7 +313,7 @@ public class StockAnalysisService {
     private String loadPromptTemplate() {
         try {
             String template = new String(promptTemplate.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+            String today = TradingHoursService.todayInChina();
             return template.replace("{{current_date}}", today);
         } catch (IOException e) {
             throw new RuntimeException("无法加载 prompt 模板文件", e);
