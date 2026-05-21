@@ -131,10 +131,23 @@ const addLoading = ref(false)
 const lastAddTime = ref(0)
 const ADD_COOLDOWN = 1000 // 两次添加的最小间隔（毫秒）
 
+// 去重：保留首次出现的位置
+const dedupFavorites = () => {
+  const seen = new Set()
+  favorites.value = favorites.value.filter(code => {
+    if (seen.has(code)) return false
+    seen.add(code)
+    return true
+  })
+}
+
 const fetchFavorites = async () => {
   try {
     const res = await axios.get('/api/favorites/list', { params: { phone: props.phone } })
-    if (res.data.success) favorites.value = res.data.data || []
+    if (res.data.success) {
+      favorites.value = res.data.data || []
+      dedupFavorites()
+    }
   } catch { favorites.value = [] }
 }
 
@@ -156,6 +169,7 @@ const addFavorite = async () => {
     const res = await axios.post('/api/favorites/add', { phone: props.phone, stockCode: code })
     if (res.data.success) {
       favorites.value.unshift(code)
+      dedupFavorites()
       addCode.value = ''
       if (!selectedStock.value) selectStock(code)
     }
@@ -191,6 +205,7 @@ const startAnalyze = async () => {
     if (!favorites.value.includes(code)) {
       await axios.post('/api/favorites/add', { phone: props.phone, stockCode: code })
       favorites.value.unshift(code)
+      dedupFavorites()
     }
     searchCode.value = ''
     selectStock(code)
