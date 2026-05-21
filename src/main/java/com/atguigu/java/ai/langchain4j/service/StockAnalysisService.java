@@ -61,6 +61,7 @@ public class StockAnalysisService {
         String prompt = systemPrompt + "\n\n请分析以下股票行情数据：\n\n" + quoteContext;
 
         String llmOutput = chatLanguageModel.chat(prompt);
+        logLLMOutput(stockCode, llmOutput);
         StockAnalysisResponse response = parseJsonResponse(llmOutput);
 
         supabaseService.saveAnalysis(stockCode, response);
@@ -337,6 +338,22 @@ public class StockAnalysisService {
             return response;
         } catch (Exception e) {
             throw new RuntimeException("LLM 返回的 JSON 解析失败。原始输出: " + llmOutput, e);
+        }
+    }
+
+    private void logLLMOutput(String stockCode, String llmOutput) {
+        try {
+            String dir = System.getProperty("user.dir");
+            java.nio.file.Path filePath = java.nio.file.Path.of(dir, "src/main/resources/LLMReturn.txt");
+            java.nio.file.Files.createDirectories(filePath.getParent());
+            String log = "\n===== " + java.time.LocalDateTime.now()
+                    .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+                    + " | " + stockCode.toUpperCase() + " =====\n"
+                    + llmOutput + "\n";
+            java.nio.file.Files.writeString(filePath, log,
+                    java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+        } catch (IOException e) {
+            // 静默失败，不影响 AI 分析主流程
         }
     }
 
