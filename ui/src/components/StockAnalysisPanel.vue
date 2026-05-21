@@ -9,15 +9,16 @@
       <div class="fav-list">
         <div v-if="favorites.length === 0" class="fav-empty">暂无自选股票</div>
         <div v-for="code in favorites" :key="code"
-          :class="['fav-item', { active: code === selectedStock }]"
-          @click="selectStock(code)">
+          :class="['fav-item', { active: code === selectedStock, disabled: addLoading }]"
+          @click="addLoading ? null : selectStock(code)">
           <span class="fav-code">{{ code }}</span>
-          <span class="fav-del" @click.stop="removeFavorite(code)">&times;</span>
+          <span v-if="!addLoading" class="fav-del" @click.stop="removeFavorite(code)">&times;</span>
         </div>
       </div>
       <div class="add-stock">
-        <el-input v-model="addCode" placeholder="添加代码" size="small" @keyup.enter="addFavorite" />
-        <el-button size="small" @click="addFavorite">+</el-button>
+        <el-input v-model="addCode" placeholder="添加代码" size="small"
+          :disabled="addLoading" @keyup.enter="addFavorite" />
+        <el-button size="small" :loading="addLoading" @click="addFavorite">+</el-button>
       </div>
     </aside>
 
@@ -126,6 +127,9 @@ defineEmits(['logout'])
 // ---- 收藏列表 ----
 const favorites = ref([])
 const addCode = ref('')
+const addLoading = ref(false)
+const lastAddTime = ref(0)
+const ADD_COOLDOWN = 1000 // 两次添加的最小间隔（毫秒）
 
 const fetchFavorites = async () => {
   try {
@@ -137,7 +141,17 @@ const fetchFavorites = async () => {
 const addFavorite = async () => {
   const code = addCode.value.trim().toUpperCase()
   if (!code) return
+
+  // 第一层：loading 锁，防止并发请求
+  if (addLoading.value) return
+
+  // 第二层：时间锁，防止极快速双击穿透 loading 锁
+  if (Date.now() - lastAddTime.value < ADD_COOLDOWN) return
+
   if (favorites.value.includes(code)) { addCode.value = ''; return }
+
+  lastAddTime.value = Date.now()
+  addLoading.value = true
   try {
     const res = await axios.post('/api/favorites/add', { phone: props.phone, stockCode: code })
     if (res.data.success) {
@@ -146,6 +160,7 @@ const addFavorite = async () => {
       if (!selectedStock.value) selectStock(code)
     }
   } catch { /* ignore */ }
+  finally { addLoading.value = false }
 }
 
 const removeFavorite = async (code) => {
@@ -415,6 +430,7 @@ onUnmounted(() => stopRealtimePolling())
   margin-bottom: 2px; transition: background 0.15s; }
 .fav-item:hover { background: #2a2a4e; }
 .fav-item.active { background: #409eff; font-weight: 600; }
+.fav-item.disabled { pointer-events: none; opacity: 0.5; }
 .fav-code { font-family: monospace; }
 .fav-del { font-size: 18px; opacity: 0.5; cursor: pointer; }
 .fav-del:hover { opacity: 1; color: #f56c6c; }
